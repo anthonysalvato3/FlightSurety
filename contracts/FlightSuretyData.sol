@@ -12,9 +12,20 @@ contract FlightSuretyData {
 
     address private contractOwner; // Account used to deploy contract
     bool private operational = true; // Blocks all state changes throughout the contract if false
+
+    struct Airline {
+        bool isRegistered;
+        uint funding;
+    }
+    struct Insurance {
+        address account;
+        uint amount;
+    }
+    address[] private airlineAddresses;
     mapping(address => bool) private authorizedCallers;
-    mapping(address => bool) private registeredAirlines;
-    mapping(address => uint) private fundedAirlines;
+    mapping(address => Airline) private registeredAirlines;
+    mapping(bytes32 => Insurance) passengers;
+    mapping(address => uint) payoutsOwed;
 
     /********************************************************************************************/
     /*                                       EVENT DEFINITIONS                                  */
@@ -26,7 +37,11 @@ contract FlightSuretyData {
      */
     constructor(address firstAirline) public {
         contractOwner = msg.sender;
-        registeredAirlines[firstAirline] = true;
+        registeredAirlines[firstAirline] = Airline({
+            isRegistered: true,
+            funding: 0
+        });
+        airlineAddresses.push(firstAirline);
     }
 
     /********************************************************************************************/
@@ -95,6 +110,37 @@ contract FlightSuretyData {
         authorizedCallers[id] = true;
     }
 
+    /**
+     * @dev Check if address is authorized caller
+     *
+     */
+
+    function isCaller(address id) public view returns (bool) {
+        return authorizedCallers[id];
+    }
+
+    /**
+     * @dev Get airline addresses
+     *
+     * @return An array of addresses representing all registered airlines
+     */
+
+    function getAirlineAddresses() external view returns (address[] memory) {
+        return airlineAddresses;
+    }
+
+    /**
+     * @dev Get insurance of a passenger
+     *
+     * @return The insuree's address and amount
+     */
+
+    function getInsurance(address airline, string flight, uint256 timestamp, address passenger) external view returns (address, uint) {
+        bytes32 flightKey = getFlightKey(airline, flight, timestamp);
+        bytes32 passengerKey = getPassengerKey(passenger, flightKey);
+        return (passengers[passengerKey].account, passengers[passengerKey].amount);
+    }
+
     /********************************************************************************************/
     /*                                     SMART CONTRACT FUNCTIONS                             */
     /********************************************************************************************/
@@ -106,7 +152,11 @@ contract FlightSuretyData {
      */
 
     function registerAirline(address newAirline) external {
-        registeredAirlines[newAirline] = true;
+        registeredAirlines[newAirline] = Airline({
+            isRegistered: true,
+            funding: 0
+        });
+        airlineAddresses.push(newAirline);
     }
 
     /**
@@ -114,18 +164,35 @@ contract FlightSuretyData {
      *
      */
 
-    function buy() external payable {}
+    function buy(address passenger, bytes32 flightKey, uint limit) external payable {
+        bytes32 passengerKey = getPassengerKey(passenger, flightKey);
+        uint totalInsured = passengers[passengerKey].amount.add(msg.value);
+        require(totalInsured <= limit, "Total insured cannot exceed insurance limit");
+        passengers[passengerKey].account = passenger;
+        passengers[passengerKey].amount = totalInsured;
+    }
 
     /**
      *  @dev Credits payouts to insurees
      */
-    function creditInsurees() external pure {}
+    function creditInsurees(bytes32[] passengerKeys, uint multiplier) external {
+        for (uint i = 0; i < passengerKeys.length; i++) {
+            bytes32 passengerKey = passengerKeys[i];
+            address account = passengers[passengerKey].account;
+            payoutsOwed[account] = payoutsOwed[account].add(passengers[passengerKey].amount.mul(multiplier));
+        }
+    }
 
     /**
      *  @dev Transfers eligible payout funds to insuree
      *
      */
-    function pay() external pure {}
+    function pay(address account) external  {
+        uint payout = payoutsOwed[account];
+        require(payout > 0, "Address has zero balance");
+        payoutsOwed[account] = 0;
+        account.transfer(payout);
+    }
 
     /**
      * @dev Initial funding for the insurance. Unless there are too many delayed flights
@@ -134,16 +201,15 @@ contract FlightSuretyData {
      */
 
     function fund(address airline) public payable {
-        //fundedAirlines[airline] = fundedAirlines[airline].add(msg.value);
-        fundedAirlines[airline] = 10000000000000000000;
+        registeredAirlines[airline].funding = registeredAirlines[airline].funding.add(msg.value);
     }
 
-    function getFlightKey(
-        address airline,
-        string memory flight,
-        uint256 timestamp
-    ) internal pure returns (bytes32) {
+    function getFlightKey(address airline, string memory flight, uint256 timestamp) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(airline, flight, timestamp));
+    }
+
+    function getPassengerKey(address passenger, bytes32 flightKey) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(passenger, flightKey));
     }
 
     /**
@@ -151,8 +217,8 @@ contract FlightSuretyData {
      *
      */
 
-    function isAirline(address id) external returns (bool) {
-        return registeredAirlines[id];
+    function isAirline(address id) external view returns (bool) {
+        return registeredAirlines[id].isRegistered;
     }
 
     /**
@@ -160,8 +226,8 @@ contract FlightSuretyData {
      *
      */
 
-    function getFunding(address id) public returns (uint) {
-        return fundedAirlines[id];
+    function getFunding(address id) public view returns (uint) {
+        return registeredAirlines[id].funding;
     }
 
     /**
@@ -172,16 +238,4 @@ contract FlightSuretyData {
         fund(msg.sender);
     }
 
-    /********************************************************************************************/
-    /*                                       HELPER FUNCTIONS                                   */
-    /********************************************************************************************/
-
-    /**
-     * @dev Check if address is authorized caller
-     *
-     */
-
-    function isCaller(address id) public returns (bool) {
-        return authorizedCallers[id];
-    }
 }

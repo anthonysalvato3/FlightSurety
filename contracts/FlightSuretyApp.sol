@@ -18,6 +18,7 @@ contract FlightSuretyApp {
     /********************************************************************************************/
 
     uint private constant MINIMUM_FUNDING_THRESHOLD = 10 ether;
+    uint private constant MAXIMUM_INSURANCE_AMOUNT = 1 ether;
 
     // Flight status codes
     uint8 private constant STATUS_CODE_UNKNOWN = 0;
@@ -29,6 +30,17 @@ contract FlightSuretyApp {
 
     address private contractOwner; // Account used to deploy contract
     FlightSuretyData flightSuretyData;
+
+    struct Poll {
+        bool isActive;
+        address target;
+        uint requiredVotes;
+        uint yesVotes;
+        uint noVotes;
+    }
+    Poll private airlineRegisterPoll;
+    mapping(address => bool) private hasVoted;
+    address[] private voterList;
 
     struct Flight {
         bool isRegistered;
@@ -82,6 +94,40 @@ contract FlightSuretyApp {
         _;
     }
 
+    modifier isNotDuplicated(address newAirline) {
+        require(!flightSuretyData.isAirline(newAirline), "Airline is already registered");
+        _;
+    }
+
+    /**
+     * @dev Determines if the target address is being voted on
+     */
+
+    modifier isActiveVote(address newAirline) {
+        require(newAirline == airlineRegisterPoll.target, "This address is not open for voting");
+        require(airlineRegisterPoll.isActive, "This vote has already concluded");
+        _;
+    }
+
+    /**
+     * @dev Determines if the sender has already voted
+     */
+
+    modifier isNotDuplicateVoter() {
+        require(!hasVoted[msg.sender], "Caller has already voted");
+        _;
+    }
+
+    modifier inTheFuture(uint timestamp) {
+        require(timestamp > now, "Provided timestamp is in the past");
+        _;
+    }
+
+    modifier flightIsRegistered(address airline, string flight, uint timestamp) {
+        require(flights[getFlightKey(airline, flight, timestamp)].isRegistered, "Flight has not yet been registered");
+        _;
+    }
+
     /********************************************************************************************/
     /*                                       CONSTRUCTOR                                        */
     /********************************************************************************************/
@@ -103,6 +149,19 @@ contract FlightSuretyApp {
         return true; // Modify to call data contract's status
     }
 
+    function getPollStatus() public view returns (bool, address, uint, uint, uint) {
+        return (airlineRegisterPoll.isActive, airlineRegisterPoll.target, airlineRegisterPoll.requiredVotes,
+        airlineRegisterPoll.yesVotes, airlineRegisterPoll.noVotes);
+    }
+
+    function getVoterList() public view returns (address[] memory) {
+        return voterList;
+    }
+
+    function getHasVoted(address voter) public view returns (bool) {
+        return hasVoted[voter];
+    }
+
     /********************************************************************************************/
     /*                                     SMART CONTRACT FUNCTIONS                             */
     /********************************************************************************************/
@@ -112,9 +171,41 @@ contract FlightSuretyApp {
      *
      */
 
-    function registerAirline(address newAirline) external isAirline() isFunded() returns (bool success, uint256 votes) {
-        flightSuretyData.registerAirline(newAirline);
-        return (success, 0);
+    function registerAirline(address newAirline) external
+    isAirline()
+    isFunded()
+    isNotDuplicated(newAirline) {
+        uint numAirlines = flightSuretyData.getAirlineAddresses().length;
+        if (numAirlines < 4) {
+            flightSuretyData.registerAirline(newAirline);
+        } else {
+            openPoll(newAirline);
+        }
+    }
+
+    /**
+     * @dev Existing airlines can vote for a new airline to be registered
+     *
+     */
+
+    function voteAirline(address newAirline, bool approve) external
+    isAirline()
+    isFunded()
+    isActiveVote(newAirline)
+    isNotDuplicateVoter() {
+        if (approve) {
+            airlineRegisterPoll.yesVotes = airlineRegisterPoll.yesVotes.add(1);
+        } else {
+            airlineRegisterPoll.noVotes = airlineRegisterPoll.noVotes.add(1);
+        }
+        hasVoted[msg.sender] = true;
+        voterList.push(msg.sender);
+
+        if(airlineRegisterPoll.yesVotes >= airlineRegisterPoll.requiredVotes) {
+            closePollSuccess(newAirline);
+        } else if(airlineRegisterPoll.yesVotes.add(airlineRegisterPoll.noVotes) >= getNumberOfFundedAirlines()) {
+            closePollFail();
+        }
     }
 
     /**
@@ -122,8 +213,9 @@ contract FlightSuretyApp {
      *
      */
 
-    function fund() external isAirline() {
-        flightSuretyData.fund(msg.sender);
+    function fund() external payable
+    isAirline() {
+        flightSuretyData.fund.value(msg.value)(msg.sender);
     }
 
     /**
@@ -131,7 +223,27 @@ contract FlightSuretyApp {
      *
      */
 
-    function registerFlight() external pure {}
+    function registerFlight(string flight, uint timestamp) external
+    isAirline()
+    isFunded()
+    inTheFuture(timestamp) {
+        bytes32 flightKey = getFlightKey(msg.sender, flight, timestamp);
+        flights[flightKey].isRegistered = true;
+        flights[flightKey].statusCode = STATUS_CODE_ON_TIME;
+        flights[flightKey].updatedTimestamp = timestamp;
+        flights[flightKey].airline = msg.sender;
+    }
+
+    /**
+     * @dev Buy insurance for a flight
+     *
+     */
+
+    function buyFlightInsurance(address airline, string flight, uint timestamp) external payable
+    flightIsRegistered(airline, flight, timestamp) {
+        bytes32 flightKey = getFlightKey(airline, flight, timestamp);
+        flightSuretyData.buy.value(msg.value)(msg.sender, flightKey, MAXIMUM_INSURANCE_AMOUNT);
+    }
 
     /**
      * @dev Called after oracle has updated flight status
@@ -232,7 +344,7 @@ contract FlightSuretyApp {
         oracles[msg.sender] = Oracle({isRegistered: true, indexes: indexes});
     }
 
-    function getMyIndexes() external view returns (uint8[3]) {
+    function getMyIndexes() external view returns (uint8[3] memory) {
         require(
             oracles[msg.sender].isRegistered,
             "Not registered as an oracle"
@@ -282,16 +394,16 @@ contract FlightSuretyApp {
         }
     }
 
-    function getFlightKey(address airline, string flight, uint256 timestamp)
-        internal
-        pure
-        returns (bytes32)
-    {
+    function getFlightKey(address airline, string memory flight, uint256 timestamp) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(airline, flight, timestamp));
     }
 
+    function getPassengerKey(address passenger, bytes32 flightKey) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(passenger, flightKey));
+    }
+
     // Returns array of three non-duplicating integers from 0-9
-    function generateIndexes(address account) internal returns (uint8[3]) {
+    function generateIndexes(address account) internal returns (uint8[3] memory) {
         uint8[3] memory indexes;
         indexes[0] = getRandomIndex(account);
 
@@ -329,12 +441,85 @@ contract FlightSuretyApp {
     }
 
     // endregion
+
+    /********************************************************************************************/
+    /*                                       UTILITY FUNCTIONS                                  */
+    /********************************************************************************************/
+
+    function getFlight(address airline, string flight, uint256 timestamp) external returns (bool, uint8, uint256, address) {
+        bytes32 flightKey = getFlightKey(airline, flight, timestamp);
+        return (flights[flightKey].isRegistered, flights[flightKey].statusCode, flights[flightKey].updatedTimestamp, flights[flightKey].airline);
+    }
+
+    /********************************************************************************************/
+    /*                                       HELPER FUNCTIONS                                   */
+    /********************************************************************************************/
+
+    function getNumberOfFundedAirlines() private returns (uint) {
+        address[] memory allAirlines = flightSuretyData.getAirlineAddresses();
+        uint numFundedAirlines = 0;
+        for (uint i = 0; i < allAirlines.length; i++) {
+            address currentAirline = allAirlines[i];
+            if (flightSuretyData.getFunding(currentAirline) >= MINIMUM_FUNDING_THRESHOLD) {
+                numFundedAirlines = numFundedAirlines.add(1);
+            }
+        }
+        return numFundedAirlines;
+    }
+
+    function openPoll(address newAirline) private {
+        airlineRegisterPoll = Poll({
+            isActive: true,
+            target: newAirline,
+            requiredVotes: getRequiredVotes(),
+            yesVotes: 1,
+            noVotes: 0
+        });
+        hasVoted[msg.sender] = true;
+        voterList.push(msg.sender);
+        if (airlineRegisterPoll.yesVotes >= airlineRegisterPoll.requiredVotes) {
+            closePollSuccess(newAirline);
+        }
+    }
+
+    function closePollFail() private {
+        uint numVoters = voterList.length;
+
+        for (uint i = 0; i < numVoters; i++) {
+            hasVoted[voterList[i]] = false;
+        }
+        delete voterList;
+        airlineRegisterPoll.isActive = false;
+    }
+
+    function closePollSuccess(address newAirline) private {
+        closePollFail();
+        flightSuretyData.registerAirline(newAirline);
+    }
+
+    function getRequiredVotes() private returns (uint) {
+        uint requiredVotes = 0;
+        uint numFundedAirlines = getNumberOfFundedAirlines();
+
+        // If even number of airlines, required votes = number of airlines / 2.
+        // If odd number of airlines, required votes = number of airlines / 2 + 1.
+        if (numFundedAirlines.div(2).mul(2) == numFundedAirlines) {
+            requiredVotes = numFundedAirlines.div(2);
+        } else {
+            requiredVotes = numFundedAirlines.div(2).add(1);
+        }
+
+        return requiredVotes;
+    }
+
 }
 
 // Define interface to interact with the data contract
 contract FlightSuretyData {
     function registerAirline(address newAirline) external;
-    function isAirline(address id) external returns(bool);
+    function isAirline(address id) external returns (bool);
     function fund(address airline) public payable;
-    function getFunding(address id) external returns(uint);
+    function getFunding(address id) external returns (uint);
+    function getAirlineAddresses() external returns (address[] memory);
+    function buy(address passenger, bytes32 flightKey, uint limit) external payable;
 }
