@@ -21,10 +21,11 @@ contract FlightSuretyData {
         address account;
         uint amount;
     }
-    address[] private airlineAddresses;
     mapping(address => bool) private authorizedCallers;
+    address[] private airlineAddresses;
     mapping(address => Airline) private registeredAirlines;
     mapping(bytes32 => Insurance) passengers;
+    mapping(bytes32 => address[]) insureesByFlight;
     mapping(address => uint) payoutsOwed;
 
     /********************************************************************************************/
@@ -141,6 +142,16 @@ contract FlightSuretyData {
         return (passengers[passengerKey].account, passengers[passengerKey].amount);
     }
 
+    /**
+     * @dev Get payout owed
+     *
+     * @return The payout owed to a particular passenger
+     */
+
+     function getPayoutOwed(address passenger) external view returns (uint) {
+         return payoutsOwed[passenger];
+     }
+
     /********************************************************************************************/
     /*                                     SMART CONTRACT FUNCTIONS                             */
     /********************************************************************************************/
@@ -170,16 +181,19 @@ contract FlightSuretyData {
         require(totalInsured <= limit, "Total insured cannot exceed insurance limit");
         passengers[passengerKey].account = passenger;
         passengers[passengerKey].amount = totalInsured;
+        insureesByFlight[flightKey].push(passenger);
     }
 
     /**
      *  @dev Credits payouts to insurees
      */
-    function creditInsurees(bytes32[] passengerKeys, uint multiplier) external {
-        for (uint i = 0; i < passengerKeys.length; i++) {
-            bytes32 passengerKey = passengerKeys[i];
-            address account = passengers[passengerKey].account;
-            payoutsOwed[account] = payoutsOwed[account].add(passengers[passengerKey].amount.mul(multiplier));
+    function creditInsurees(bytes32 flightKey, uint multiplierTimesTen) external {
+        address[] storage accountsForFlight = insureesByFlight[flightKey];
+        for (uint i = 0; i < accountsForFlight.length; i++) {
+            address passenger = accountsForFlight[i];
+            bytes32 passengerKey = getPassengerKey(passenger, flightKey);
+            payoutsOwed[passenger] = payoutsOwed[passenger].add(passengers[passengerKey].amount.mul(multiplierTimesTen).div(10));
+            passengers[passengerKey].amount = 0;
         }
     }
 

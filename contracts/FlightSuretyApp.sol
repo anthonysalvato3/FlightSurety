@@ -19,6 +19,7 @@ contract FlightSuretyApp {
 
     uint private constant MINIMUM_FUNDING_THRESHOLD = 10 ether;
     uint private constant MAXIMUM_INSURANCE_AMOUNT = 1 ether;
+    uint private constant PAYOUT_MULTIPLIER_TIMES_TEN = 15;
 
     // Flight status codes
     uint8 private constant STATUS_CODE_UNKNOWN = 0;
@@ -49,6 +50,8 @@ contract FlightSuretyApp {
         address airline;
     }
     mapping(bytes32 => Flight) private flights;
+
+    // uint private tempIndex;
 
     /********************************************************************************************/
     /*                                       FUNCTION MODIFIERS                                 */
@@ -245,17 +248,21 @@ contract FlightSuretyApp {
         flightSuretyData.buy.value(msg.value)(msg.sender, flightKey, MAXIMUM_INSURANCE_AMOUNT);
     }
 
+    function withdraw() external {
+        flightSuretyData.pay(msg.sender);
+    }
+
     /**
      * @dev Called after oracle has updated flight status
      *
      */
 
-    function processFlightStatus(
-        address airline,
-        string memory flight,
-        uint256 timestamp,
-        uint8 statusCode
-    ) internal pure {}
+    function processFlightStatus(address airline, string memory flight, uint256 timestamp, uint8 statusCode) internal {
+        if(statusCode == STATUS_CODE_LATE_AIRLINE) {
+            bytes32 flightKey = getFlightKey(airline, flight, timestamp);
+            flightSuretyData.creditInsurees(flightKey, PAYOUT_MULTIPLIER_TIMES_TEN);
+        }
+    }
 
     // Generate a request for oracles to fetch flight information
     function fetchFlightStatus(
@@ -274,6 +281,7 @@ contract FlightSuretyApp {
             isOpen: true
         });
 
+        // tempIndex = index;
         emit OracleRequest(index, airline, flight, timestamp);
     }
 
@@ -387,6 +395,8 @@ contract FlightSuretyApp {
         if (
             oracleResponses[key].responses[statusCode].length >= MIN_RESPONSES
         ) {
+            //Prevent processFlightStatus from being called more than once
+            oracleResponses[key].isOpen = false;
             emit FlightStatusInfo(airline, flight, timestamp, statusCode);
 
             // Handle flight status as appropriate
@@ -446,10 +456,14 @@ contract FlightSuretyApp {
     /*                                       UTILITY FUNCTIONS                                  */
     /********************************************************************************************/
 
-    function getFlight(address airline, string flight, uint256 timestamp) external returns (bool, uint8, uint256, address) {
+    function getFlight(address airline, string flight, uint256 timestamp) external view returns (bool, uint8, uint256, address) {
         bytes32 flightKey = getFlightKey(airline, flight, timestamp);
         return (flights[flightKey].isRegistered, flights[flightKey].statusCode, flights[flightKey].updatedTimestamp, flights[flightKey].airline);
     }
+
+    // function getTempIndex() external view returns (uint) {
+    //     return tempIndex;
+    // }
 
     /********************************************************************************************/
     /*                                       HELPER FUNCTIONS                                   */
@@ -522,4 +536,6 @@ contract FlightSuretyData {
     function getFunding(address id) external returns (uint);
     function getAirlineAddresses() external returns (address[] memory);
     function buy(address passenger, bytes32 flightKey, uint limit) external payable;
+    function creditInsurees(bytes32 flightKey, uint multiplierTimesTen) external;
+    function pay(address account) external;
 }

@@ -1,6 +1,7 @@
 
 var Test = require('../config/testConfig.js');
 //var BigNumber = require('bignumber.js');
+const truffleAssert = require('truffle-assertions');
 
 contract('Oracles', async (accounts) => {
 
@@ -8,16 +9,15 @@ contract('Oracles', async (accounts) => {
   var config;
   before('setup contract', async () => {
     config = await Test.Config(accounts);
-
-    // Watch contract events
-    const STATUS_CODE_UNKNOWN = 0;
-    const STATUS_CODE_ON_TIME = 10;
-    const STATUS_CODE_LATE_AIRLINE = 20;
-    const STATUS_CODE_LATE_WEATHER = 30;
-    const STATUS_CODE_LATE_TECHNICAL = 40;
-    const STATUS_CODE_LATE_OTHER = 50;
-
   });
+
+  // Flight status codes
+  const STATUS_CODE_UNKNOWN = 0;
+  const STATUS_CODE_ON_TIME = 10;
+  const STATUS_CODE_LATE_AIRLINE = 20;
+  const STATUS_CODE_LATE_WEATHER = 30;
+  const STATUS_CODE_LATE_TECHNICAL = 40;
+  const STATUS_CODE_LATE_OTHER = 50;
 
 
   it('can register oracles', async () => {
@@ -47,6 +47,9 @@ contract('Oracles', async (accounts) => {
     // loop through all the accounts and for each account, all its Indexes (indices?)
     // and submit a response. The contract will reject a submission if it was
     // not requested so while sub-optimal, it's a good test of that feature
+    let tempIndex = await config.flightSuretyApp.getTempIndex.call();
+    let successCount = 0;
+    console.log("FLIGHT INDEX: " + tempIndex);
     for(let a=1; a<TEST_ORACLES_COUNT; a++) {
 
       // Get oracle information
@@ -55,12 +58,16 @@ contract('Oracles', async (accounts) => {
 
         try {
           // Submit a response...it will only be accepted if there is an Index match
-          await config.flightSuretyApp.submitOracleResponse(oracleIndexes[idx], config.firstAirline, flight, timestamp, STATUS_CODE_ON_TIME, { from: accounts[a] });
-
+          await config.flightSuretyApp.submitOracleResponse(oracleIndexes[idx], config.firstAirline, flight, timestamp, STATUS_CODE_ON_TIME, { from: accounts[a], nonce: await web3.eth.getTransactionCount(accounts[a]) });
+          successCount++;
+          console.log("SUCCESS COUNT: " + successCount);
         }
         catch(e) {
           // Enable this when debugging
-           console.log('\nError', idx, oracleIndexes[idx].toNumber(), flight, timestamp);
+          // console.log('\nError', idx, oracleIndexes[idx].toNumber(), flight, timestamp);
+        }
+        if (successCount >= 3) {
+          await truffleAssert.reverts(config.flightSuretyApp.submitOracleResponse(oracleIndexes[idx], config.firstAirline, flight, timestamp, STATUS_CODE_ON_TIME, { from: accounts[a], nonce: await web3.eth.getTransactionCount(accounts[a]) }), "Flight or timestamp do not match oracle request");
         }
 
       }
