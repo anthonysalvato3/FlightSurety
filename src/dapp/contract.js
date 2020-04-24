@@ -64,6 +64,21 @@ export default class Contract {
             });
     }
 
+    buyFlightInsurance(airline, flight, timestamp, callback) {
+        let self = this;
+        let passenger = this.passengers[0];
+        let payload = {
+            airline: airline,
+            flight: flight,
+            timestamp: timestamp
+        }
+        self.flightSuretyApp.methods
+            .buyFlightInsurance(payload.airline, payload.flight, payload.timestamp)
+            .send({from: passenger, gas: this.config.gas}, (error, result) => {
+                callback(error, payload);
+            });
+    }
+
     fetchFlightStatus(flight, timestamp, callback) {
         let self = this;
         let payload = {

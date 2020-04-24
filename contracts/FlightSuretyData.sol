@@ -36,8 +36,9 @@ contract FlightSuretyData {
      * @dev Constructor
      *      The deploying account becomes contractOwner
      */
-    constructor(address firstAirline) public {
+    constructor(address firstAirline, address appContract) public {
         contractOwner = msg.sender;
+        authorizedCallers[appContract] = true;
         registeredAirlines[firstAirline] = Airline({
             isRegistered: true,
             funding: 0
@@ -180,8 +181,7 @@ contract FlightSuretyData {
      */
 
     function buy(address passenger, bytes32 flightKey, uint limit) external payable
-    requireIsOperational()
-    isAuthorizedCaller() {
+    requireIsOperational() {
         bytes32 passengerKey = getPassengerKey(passenger, flightKey);
         uint totalInsured = passengers[passengerKey].amount.add(msg.value);
         require(totalInsured <= limit, "Total insured cannot exceed insurance limit");
@@ -225,8 +225,7 @@ contract FlightSuretyData {
      */
 
     function fund(address airline) public payable
-    requireIsOperational()
-    isAuthorizedCaller() {
+    requireIsOperational() {
         registeredAirlines[airline].funding = registeredAirlines[airline].funding.add(msg.value);
     }
 

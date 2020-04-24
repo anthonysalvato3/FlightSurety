@@ -34,6 +34,17 @@ import './flightsurety.css';
             });
         })
 
+        DOM.elid('buy-flight-insurance').addEventListener('click', () => {
+            let airline = DOM.elid('airine-address-buy-insurance').value;
+            let flight = DOM.elid('flight-number-buy-insurance').value;
+            let timestamp = DOM.elid('flight-timestamp-buy-insurance').value;
+            // Write transaction
+            contract.buyFlightInsurance(airline, flight, timestamp, (error, result) => {
+                if(error) console.log(error);
+                if(result) console.log(result);
+            });
+        })
+
         // User-submitted transaction
         DOM.elid('submit-oracle').addEventListener('click', () => {
             let flight = DOM.elid('flight-number').value;
