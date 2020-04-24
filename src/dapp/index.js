@@ -15,13 +15,31 @@ import './flightsurety.css';
             console.log(error,result);
             display('Operational Status', 'Check if contract is operational', [ { label: 'Operational Status', error: error, value: result} ]);
         });
-    
+
+        DOM.elid('fund-airline').addEventListener('click', () => {
+            // Write transaction
+            contract.fund((error, result) => {
+                if(error) console.log(error);
+                if(result) console.log(result);
+            });
+        })
+
+        DOM.elid('register-flight').addEventListener('click', () => {
+            let flight = DOM.elid('flight-number-register-flight').value;
+            let timestamp = DOM.elid('flight-timestamp-register-flight').value;
+            // Write transaction
+            contract.registerFlight(flight, timestamp, (error, result) => {
+                if(error) console.log(error);
+                if(result) console.log(result);
+            });
+        })
 
         // User-submitted transaction
         DOM.elid('submit-oracle').addEventListener('click', () => {
             let flight = DOM.elid('flight-number').value;
+            let timestamp = DOM.elid('flight-timestamp').value;
             // Write transaction
-            contract.fetchFlightStatus(flight, (error, result) => {
+            contract.fetchFlightStatus(flight, timestamp, (error, result) => {
                 display('Oracles', 'Trigger oracles', [ { label: 'Fetch Flight Status', error: error, value: result.flight + ' ' + result.timestamp} ]);
             });
         })

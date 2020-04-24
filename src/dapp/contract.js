@@ -6,6 +6,7 @@ export default class Contract {
     constructor(network, callback) {
 
         let config = Config[network];
+        this.config = config;
         this.web3 = new Web3(new Web3.providers.HttpProvider(config.url));
         this.flightSuretyApp = new this.web3.eth.Contract(FlightSuretyApp.abi, config.appAddress);
         this.initialize(callback);
@@ -40,12 +41,36 @@ export default class Contract {
             .call({ from: self.owner}, callback);
     }
 
-    fetchFlightStatus(flight, callback) {
+    fund(callback) {
+        let self = this;
+        self.flightSuretyApp.methods
+            .fund()
+            .send({from: self.airlines[0], value: this.web3.utils.toWei("11", "ether")}, (error, result) => {
+                callback(error, result);
+            });
+    }
+
+    registerFlight(flight, timestamp, callback) {
         let self = this;
         let payload = {
             airline: self.airlines[0],
             flight: flight,
-            timestamp: Math.floor(Date.now() / 1000)
+            timestamp: timestamp
+        }
+        self.flightSuretyApp.methods
+            .registerFlight(payload.flight, payload.timestamp)
+            .send({from: payload.airline, gas: this.config.gas}, (error, result) => {
+                callback(error, payload);
+            });
+    }
+
+    fetchFlightStatus(flight, timestamp, callback) {
+        let self = this;
+        let payload = {
+            airline: self.airlines[0],
+            flight: flight,
+            // timestamp: Math.floor(Date.now() / 1000)
+            timestamp: timestamp
         } 
         self.flightSuretyApp.methods
             .fetchFlightStatus(payload.airline, payload.flight, payload.timestamp)
