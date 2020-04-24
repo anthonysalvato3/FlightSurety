@@ -74,7 +74,7 @@ contract FlightSuretyData {
      * @dev Modifier that checks if caller is authorized
      */
     modifier isAuthorizedCaller() {
-        require(isCaller(msg.sender), "Caller is not authorized");
+        require(authorizedCallers[msg.sender], "Caller is not authorized");
         _;
     }
 
@@ -98,7 +98,8 @@ contract FlightSuretyData {
      * When operational mode is disabled, all write transactions except for this one will fail
      */
 
-    function setOperatingStatus(bool mode) external requireContractOwner {
+    function setOperatingStatus(bool mode) external
+    requireContractOwner() {
         operational = mode;
     }
 
@@ -107,7 +108,8 @@ contract FlightSuretyData {
      *
      */
 
-    function authorizeCaller(address id) public {
+    function authorizeCaller(address id) public
+    requireContractOwner() {
         authorizedCallers[id] = true;
     }
 
@@ -162,7 +164,9 @@ contract FlightSuretyData {
      *
      */
 
-    function registerAirline(address newAirline) external {
+    function registerAirline(address newAirline) external
+    requireIsOperational()
+    isAuthorizedCaller() {
         registeredAirlines[newAirline] = Airline({
             isRegistered: true,
             funding: 0
@@ -175,7 +179,9 @@ contract FlightSuretyData {
      *
      */
 
-    function buy(address passenger, bytes32 flightKey, uint limit) external payable {
+    function buy(address passenger, bytes32 flightKey, uint limit) external payable
+    requireIsOperational()
+    isAuthorizedCaller() {
         bytes32 passengerKey = getPassengerKey(passenger, flightKey);
         uint totalInsured = passengers[passengerKey].amount.add(msg.value);
         require(totalInsured <= limit, "Total insured cannot exceed insurance limit");
@@ -187,7 +193,9 @@ contract FlightSuretyData {
     /**
      *  @dev Credits payouts to insurees
      */
-    function creditInsurees(bytes32 flightKey, uint multiplierTimesTen) external {
+    function creditInsurees(bytes32 flightKey, uint multiplierTimesTen) external
+    requireIsOperational()
+    isAuthorizedCaller() {
         address[] storage accountsForFlight = insureesByFlight[flightKey];
         for (uint i = 0; i < accountsForFlight.length; i++) {
             address passenger = accountsForFlight[i];
@@ -201,7 +209,9 @@ contract FlightSuretyData {
      *  @dev Transfers eligible payout funds to insuree
      *
      */
-    function pay(address account) external  {
+    function pay(address account) external
+    requireIsOperational()
+    isAuthorizedCaller() {
         uint payout = payoutsOwed[account];
         require(payout > 0, "Address has zero balance");
         payoutsOwed[account] = 0;
@@ -214,7 +224,9 @@ contract FlightSuretyData {
      *
      */
 
-    function fund(address airline) public payable {
+    function fund(address airline) public payable
+    requireIsOperational()
+    isAuthorizedCaller() {
         registeredAirlines[airline].funding = registeredAirlines[airline].funding.add(msg.value);
     }
 

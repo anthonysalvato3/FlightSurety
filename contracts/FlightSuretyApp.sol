@@ -30,6 +30,7 @@ contract FlightSuretyApp {
     uint8 private constant STATUS_CODE_LATE_OTHER = 50;
 
     address private contractOwner; // Account used to deploy contract
+    bool private operational = true; // Blocks all state changes throughout the contract if false
     FlightSuretyData flightSuretyData;
 
     struct Poll {
@@ -148,8 +149,25 @@ contract FlightSuretyApp {
     /*                                       UTILITY FUNCTIONS                                  */
     /********************************************************************************************/
 
-    function isOperational() public pure returns (bool) {
-        return true; // Modify to call data contract's status
+    /**
+     * @dev Get operating status of contract
+     *
+     * @return A bool that is the current operating status
+     */
+
+    function isOperational() public view returns (bool) {
+        return operational;
+    }
+
+    /**
+     * @dev Sets contract operations on/off
+     *
+     * When operational mode is disabled, all write transactions except for this one will fail
+     */
+
+    function setOperatingStatus(bool mode) external
+    requireContractOwner() {
+        operational = mode;
     }
 
     function getPollStatus() public view returns (bool, address, uint, uint, uint) {
@@ -175,6 +193,7 @@ contract FlightSuretyApp {
      */
 
     function registerAirline(address newAirline) external
+    requireIsOperational()
     isAirline()
     isFunded()
     isNotDuplicated(newAirline) {
@@ -192,6 +211,7 @@ contract FlightSuretyApp {
      */
 
     function voteAirline(address newAirline, bool approve) external
+    requireIsOperational()
     isAirline()
     isFunded()
     isActiveVote(newAirline)
@@ -217,6 +237,7 @@ contract FlightSuretyApp {
      */
 
     function fund() external payable
+    requireIsOperational()
     isAirline() {
         flightSuretyData.fund.value(msg.value)(msg.sender);
     }
@@ -227,6 +248,7 @@ contract FlightSuretyApp {
      */
 
     function registerFlight(string flight, uint timestamp) external
+    requireIsOperational()
     isAirline()
     isFunded()
     inTheFuture(timestamp) {
@@ -243,12 +265,14 @@ contract FlightSuretyApp {
      */
 
     function buyFlightInsurance(address airline, string flight, uint timestamp) external payable
+    requireIsOperational()
     flightIsRegistered(airline, flight, timestamp) {
         bytes32 flightKey = getFlightKey(airline, flight, timestamp);
         flightSuretyData.buy.value(msg.value)(msg.sender, flightKey, MAXIMUM_INSURANCE_AMOUNT);
     }
 
-    function withdraw() external {
+    function withdraw() external
+    requireIsOperational() {
         flightSuretyData.pay(msg.sender);
     }
 
@@ -269,7 +293,8 @@ contract FlightSuretyApp {
         address airline,
         string flight,
         uint256 timestamp
-    ) external {
+    ) external
+    requireIsOperational() {
         uint8 index = getRandomIndex(msg.sender);
 
         // Generate a unique key for storing the request
@@ -343,7 +368,8 @@ contract FlightSuretyApp {
     );
 
     // Register an oracle with the contract
-    function registerOracle() external payable {
+    function registerOracle() external payable 
+    requireIsOperational() {
         // Require registration fee
         require(msg.value >= REGISTRATION_FEE, "Registration fee is required");
 
@@ -371,7 +397,8 @@ contract FlightSuretyApp {
         string flight,
         uint256 timestamp,
         uint8 statusCode
-    ) external {
+    ) external
+    requireIsOperational() {
         require(
             (oracles[msg.sender].indexes[0] == index) ||
                 (oracles[msg.sender].indexes[1] == index) ||
@@ -469,7 +496,7 @@ contract FlightSuretyApp {
     /*                                       HELPER FUNCTIONS                                   */
     /********************************************************************************************/
 
-    function getNumberOfFundedAirlines() private returns (uint) {
+    function getNumberOfFundedAirlines() internal returns (uint) {
         address[] memory allAirlines = flightSuretyData.getAirlineAddresses();
         uint numFundedAirlines = 0;
         for (uint i = 0; i < allAirlines.length; i++) {
@@ -481,7 +508,7 @@ contract FlightSuretyApp {
         return numFundedAirlines;
     }
 
-    function openPoll(address newAirline) private {
+    function openPoll(address newAirline) internal {
         airlineRegisterPoll = Poll({
             isActive: true,
             target: newAirline,
@@ -496,7 +523,7 @@ contract FlightSuretyApp {
         }
     }
 
-    function closePollFail() private {
+    function closePollFail() internal {
         uint numVoters = voterList.length;
 
         for (uint i = 0; i < numVoters; i++) {
@@ -506,12 +533,12 @@ contract FlightSuretyApp {
         airlineRegisterPoll.isActive = false;
     }
 
-    function closePollSuccess(address newAirline) private {
+    function closePollSuccess(address newAirline) internal {
         closePollFail();
         flightSuretyData.registerAirline(newAirline);
     }
 
-    function getRequiredVotes() private returns (uint) {
+    function getRequiredVotes() internal returns (uint) {
         uint requiredVotes = 0;
         uint numFundedAirlines = getNumberOfFundedAirlines();
 
