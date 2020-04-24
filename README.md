@@ -1,5 +1,3 @@
-# This project is a work in progress.
-
 # FlightSurety
 
 FlightSurety is a sample application project for Udacity's Blockchain course.
@@ -19,6 +17,8 @@ To run truffle tests:
 
 `truffle test ./test/flightSurety.js`
 `truffle test ./test/oracles.js`
+
+Note that the port used by default for testing is 7545.
 
 To use the dapp:
 
@@ -44,6 +44,7 @@ Deploy the contents of the ./dapp folder
 
 ## Resources
 
+* [Udacity's FlightSurety Boilerplate](https://github.com/udacity/FlightSurety)
 * [How does Ethereum work anyway?](https://medium.com/@preethikasireddy/how-does-ethereum-work-anyway-22d1df506369)
 * [BIP39 Mnemonic Generator](https://iancoleman.io/bip39/)
 * [Truffle Framework](http://truffleframework.com/)
